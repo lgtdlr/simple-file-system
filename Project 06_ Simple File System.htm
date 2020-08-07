@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<!-- saved from url=(0064)https://www3.nd.edu/~pbui/teaching/cse.30341.fa17/project06.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+	
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="description" content="">
+	<meta name="author" content="">
+
+	<title>Project 06: Simple File System</title>
+
+	<!-- Bootstrap core CSS -->
+	<link href="./Project 06_ Simple File System_files/blugold.css" rel="stylesheet">
+	<link href="./Project 06_ Simple File System_files/font-awesome.min.css" rel="stylesheet">
+
+	<!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+	<!--[if lt IE 9]>
+	<script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+	<script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+	<![endif]-->
+
+	<style>
+	body {
+	    padding: 10px;
+	}
+	</style>
+    <style type="text/css">html { -webkit-filter: none; -moz-filter: none; -o-filter: none; -ms-filter: none; }</style><style type="text/css">html {filter: url(#normal); -webkit-filter: url(#normal); -moz-filter: url(#normal); -o-filter: url(#normal); -ms-filter: url(#normal); }</style></head>
+    <body>
+	<div class="container">
+
+	    <div class="row">
+		<div class="page-header">
+		    <ul class="nav nav-pills pull-right">
+			
+		    </ul>
+		    <h1>Project 06: Simple File System</h1>
+		</div>
+	    </div>
+
+            
+<p><img src="./Project 06_ Simple File System_files/project06-components.png" width="300px" class="img-reponsive pull-right"></p>
+<h2>Overview</h2>
+<p>The last project is to build a <em>simplified</em> version of the <a href="https://en.wikipedia.org/wiki/Unix_File_System">Unix File
+System</a> called <strong>SimpleFS</strong> as shown to the right.  In this application, we
+have three components:</p>
+<ol>
+<li>
+<p><strong>Shell</strong>: The first component is a simple shell application that allows
+the user to perform operations on the <strong>SimpleFS</strong> such as printing
+debugging information about the file system, formatting a new file system,
+mounting a file system, creating files, and copying data in or out of the
+file system.  To do this, it will translate these user commands into <strong>file
+system</strong> operations such as <code>FileSystem.debug</code>, <code>FileSystem.format</code>,
+<code>FileSystem.debug</code>, <code>FileSystem.create</code>, <code>FileSystem.read</code> and
+<code>FileSystem.write</code>.</p>
+</li>
+<li>
+<p><strong>File System</strong>: The second component takes the operations specified by
+the user through the <strong>shell</strong> and performs them on the <strong>SimpleFS</strong> disk
+image.  This component is charged with organizing the on-disk data
+structures and performing all the bookkeeping necessary to allow for
+persistent storage of data.  To store the data, it will need to interact
+with the <strong>disk emulator</strong> via methods such as <code>Disk.read</code> and
+<code>Disk.write</code>, which allow the file system read and write to the disk image
+in <code>4096</code> byte blocks.</p>
+</li>
+<li>
+<p><strong>Disk Emulator</strong>: The third component emulates a disk by dividing a
+normal file (called a <strong>disk image</strong>) into <code>4096 byte</code> blocks and only
+allows the <strong>File System</strong> to read and write in terms of blocks.  This
+emulator will persistently store the data to the disk image using the
+normal <a href="http://man7.org/linux/man-pages/man2/open.2.html">open</a>, <a href="http://man7.org/linux/man-pages/man2/read.2.html">read</a>, and <a href="http://man7.org/linux/man-pages/man2/write.2.html">write</a> system calls.</p>
+</li>
+</ol>
+<p>The <strong>shell</strong> and <strong>disk emulator</strong> components are provided to you.  You
+only have to complete the <strong>file system</strong> portion of the application for
+this project.</p>
+<h3>Simple File System Design</h3>
+<p>To implement the <strong>file system</strong> component, you will first need to
+understand the <strong>SimpleFS</strong> disk layout.  As noted previously, this project
+assumes that disk blocks are the common size of <code>4KB</code>. The first block of
+the disk is the <strong>superblock</strong> that describes the layout of the rest of the
+filesystem. A certain number of blocks following the superblock contain
+inode data structures. Typically, <strong>ten percent</strong> of the total number of
+disk blocks are used as <strong>inode</strong> blocks.  The remaining blocks in the
+filesystem are used as plain <strong>data</strong> blocks, and occasionally as
+<strong>indirect</strong> pointer blocks as shown in the example below:</p>
+<div class="thumbnail">
+<img src="./Project 06_ Simple File System_files/project06-layout.png" class="img-reponsive">
+</div>
+
+<p>In this example, we have a <strong>SimpleFS</strong> disk image that begins with a
+<strong>superblock</strong>.  This <strong>superblock</strong> consists of four fields:</p>
+<ol>
+<li>
+<p><strong>Magic</strong>: The first field is always the <code>MAGIC_NUMBER</code> or <code>0xf0f03410</code>.
+The format routine places this number into the very first bytes of the
+<strong>superblock</strong> as a sort of filesystem "signature".  When the filesystem is
+mounted, the OS looks for this magic number. If it is correct, then the
+disk is assumed to contain a valid filesystem. If some other number is
+present, then the mount fails, perhaps because the disk is not formatted or
+contains some other kind of data.</p>
+</li>
+<li>
+<p><strong>Blocks</strong>: The second field is the total number of blocks, which should
+be the same as the number of blocks on the disk.</p>
+</li>
+<li>
+<p><strong>InodeBlocks</strong>: The third field is the number of blocks set aside for
+storing <strong>inodes</strong>.  The format routine is responsible for choosing this
+value, which should always be <code>10%</code> of the <strong>Blocks</strong>, rounding up.</p>
+</li>
+<li>
+<p><strong>Inodes</strong>: The fourth field is the total number of <strong>inodes</strong> in those
+<strong>inode blocks</strong>.</p>
+</li>
+</ol>
+<p>Note that the <strong>superblock</strong> data structure is quite small: only <code>16</code>
+bytes.  The remainder of disk block zero is left unusued.</p>
+<p>Each <strong>inode</strong> in <strong>SimpleFS</strong> looks like the file:</p>
+<div class="thumbnail">
+<img src="./Project 06_ Simple File System_files/project06-inode.png" class="img-reponsive">
+</div>
+
+<p>Each field of the <strong>inode</strong> is a <code>4</code>-byte (<code>32</code>-bit) integer. The <code>Valid</code>
+field is <code>1</code> if the <strong>inode</strong> is valid (i.e. has been created) and is <code>0</code>
+otherwise.  The <code>Size</code> field contains the logical size of the <strong>inode</strong>
+data in bytes. There are <code>5</code> direct pointers to data blocks, and one
+pointer to an <strong>indirect</strong> data block. In this context, "pointer" simply
+means the number of a block where data may be found. A value of <code>0</code> may be
+used to indicate a <em>null</em> block pointer. Each inode occupies <code>32</code> bytes, so
+there are <code>128</code> inodes in each <code>4KB</code> inode block.</p>
+<p>Note that an <strong>indirect</strong> data block is just a big array of pointers to
+further data blocks. Each pointer is a <code>4</code>-byte int, and each block is
+<code>4KB</code>, so there are <code>1024</code> pointers per block. The data blocks are simply
+<code>4KB</code> of raw data.</p>
+<p>One thing missing in <strong>SimpleFS</strong> is the free block bitmap.  As discussed
+in class, a real filesystem would keep a free block bitmap on disk,
+recording one bit for each block that was available or in use.  This bitmap
+would be consulted and updated every time the filesystem needed to add or
+remove a data block from an inode.</p>
+<p>Because <strong>SimpleFS</strong> does not store this on-disk, you are required to keep
+a free block bitmap in memory. That is, there must be an array of integers,
+one for each block of the disk, noting whether the block is in use or
+available. When it is necessary to allocate a new block for a file, the
+system must scan through the array to locate an available block. When a
+block is freed, it must be likewise marked in the bitmap.</p>
+<p>Suppose that the user makes some changes to a <strong>SimpleFS</strong> filesystem, and
+then reboots the system (ie. restarts the shell). Without a free block
+bitmap, <strong>SimpleFS</strong> cannot tell which blocks are in use and which are
+free.  Fortunately, this information can be recovered by scanning the disk.
+Each time that an <strong>SimpleFS</strong> filesystem is mounted, the system must build
+a new free block bitmap from scratch by scanning through all of the inodes
+and recording which blocks are in use.  (This is much like performing an
+<a href="https://en.wikipedia.org/wiki/Fsck">fsck</a> every time the system boots.)</p>
+<p><strong>SimpleFS</strong> looks much like the <a href="https://en.wikipedia.org/wiki/Unix_File_System">Unix file system</a>. Each "file" is
+identified by an integer called an <strong>inumber</strong>. The <strong>inumber</strong> is simply
+an index into the array of inode structures that starts in block one. When
+a file is created, <strong>SimpleFS</strong> chooses the first available inumber and
+returns it to the user.  All further references to that file are made using
+the <strong>inumber</strong>. Using <strong>SimpleFS</strong> as a foundation, you could easily add
+another layer of software that implements file and directory names.
+However, that will not be part of this assignment.</p>
+<p>More details about this project and your deliverables are described below.</p>
+<div class="alert alert-info">
+<h4>File Systems</h4>
+<p>While it may seem that <a href="https://en.wikipedia.org/wiki/File_system">file systems</a> are a solved problem with venerable
+examples such as <a href="https://en.wikipedia.org/wiki/Ext4">Ext4</a>, <a href="https://en.wikipedia.org/wiki/XFS">XFS</a>, and <a href="https://en.wikipedia.org/wiki/NTFS">NTFS</a>, the growth in <a href="https://en.wikipedia.org/wiki/Big_data">big data</a> and
+the emergence of <a href="https://en.wikipedia.org/wiki/Solid-state_drive">SSDs</a> as the primary storage medium has once again made
+<a href="https://en.wikipedia.org/wiki/File_system">file systems</a> a hot topic. Today, we have next-generation file systems in
+the form of <a href="https://en.wikipedia.org/wiki/ZFS">ZFS</a>, <a href="https://en.wikipedia.org/wiki/Btrfs">Btrfs</a>, and <a href="https://en.wikipedia.org/wiki/Apple_File_System">AppleFS</a>, which build upon the foundation
+set by previous <a href="https://en.wikipedia.org/wiki/File_system">file systems</a>.  In this assignment, you will explore the
+core principles about <a href="https://en.wikipedia.org/wiki/File_system">file systems</a> and how they work.</p>
+<p><strong>Note</strong>: This assignment is based heavily on <a href="https://www3.nd.edu/~dthain/courses/cse30341/spring2017/project6/">Project 6: File Systems</a> by <a href="https://www3.nd.edu/~dthain/">Doug Thain</a>.</p>
+</div>
+<h2>Deliverables</h2>
+
+<h3>Timeline</h3>
+
+<h3>Repository</h3>
+<p>To start this project, you must fork the <a href=https://gitlab.com/CIIC4050/simple-file-system">Simple file system lab </a>
+repository on <a href="https://gitlab.com/">GitLab</a>:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>https://gitlab.com/CIIC4050/simple-file-system
+</pre></div>
+
+
+<p>Once this repository has been forked, follow the instructions from <a href="https://www3.nd.edu/~pbui/teaching/cse.30341.fa17/reading00.html">GUIA???</a> to:</p>
+<ol>
+<li>
+<p>Make the repository <strong>private</strong>.</p>
+</li>
+<li>
+<p>Configure <strong>access</strong> to the repository.</p>
+<p><em>Make sure you add the instructional staff.</em></p>
+</li>
+</ol>
+<h3>Source Code</h3>
+<p>Folder hierarchy:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>project06
+    <span style="color: #BB6622; font-weight: bold">\_</span>  Makefile            <span style="color: #408080; font-style: italic"># This is the project Makefile</span>
+    <span style="color: #BB6622; font-weight: bold">\_</span>  bin                 <span style="color: #408080; font-style: italic"># This contains the application executables and scripts</span>
+    <span style="color: #BB6622; font-weight: bold">\_</span>  include             <span style="color: #408080; font-style: italic"># This contains the SimpleFS library header files</span>
+        <span style="color: #BB6622; font-weight: bold">\_</span>  sfs
+            <span style="color: #BB6622; font-weight: bold">\_</span>  disk.h      <span style="color: #408080; font-style: italic"># This contains the Disk Emulator header file</span>
+            <span style="color: #BB6622; font-weight: bold">\_</span>  fs.h        <span style="color: #408080; font-style: italic"># This contains the File System header file</span>
+    <span style="color: #BB6622; font-weight: bold">\_</span>  src
+        <span style="color: #BB6622; font-weight: bold">\_</span>  library
+            <span style="color: #BB6622; font-weight: bold">\_</span>  disk.c    <span style="color: #408080; font-style: italic"># This contains the Disk Emulator implementation code</span>
+            <span style="color: #BB6622; font-weight: bold">\_</span>  fs.c      <span style="color: #408080; font-style: italic"># This contains the File System implementation code</span>
+        <span style="color: #BB6622; font-weight: bold">\_</span>  shell
+            <span style="color: #BB6622; font-weight: bold">\_</span>  sfssh.c   <span style="color: #408080; font-style: italic"># This contains the Shell implementation code</span>
+    <span style="color: #BB6622; font-weight: bold">\_</span>  tests               <span style="color: #408080; font-style: italic"># This contains the test scripts</span>
+</pre></div>
+
+
+<p>You must maintain this folder structure for your project and place files in
+their appropriate place.</p>
+<p>Of the provided files, you are only required to modify the
+<code>include/sfs/fs.h</code> and <code>src/library/fs.c</code> files as described below.</p>
+<p>To build the project, you can simply use <code>make</code>:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>$ make
+gcc -Wall -Iinclude -fPIC -c -o src/library/disk.o src/library/disk.c
+gcc -Wall -Iinclude -fPIC -c -o src/library/fs.o src/library/fs.c
+ar rcs lib/libsfs.a src/library/disk.o src/library/fs.o
+gcc -Wall -Iinclude -fPIC -c -o src/shell/sfssh.o src/shell/sfssh.c
+gcc -Llib -o bin/sfssh src/shell/sfssh.o -lsfs
+</pre></div>
+
+
+<div class="alert alert-warning">
+<h4> K.I.S.S.</h4>
+<p>While the exact organization of the project code is up to you, keep in mind
+that you will be graded in part on coding style, cleaniness, and
+organization.  This means your code should be consistently formatted, not
+contain any dead code, have reasonable comments, and appropriate naming
+among other things:</p>
+<ul>
+<li>
+<p>Break long functions into smaller functions.</p>
+</li>
+<li>
+<p>Make sure each function does one thing and does it well.</p>
+</li>
+<li>
+<p>Abstract, but don't over do it.</p>
+</li>
+</ul>
+
+</div>
+<h3>Disk Emulator</h3>
+<p>As noted above, we provide you with a <strong>disk emulator</strong> on which to store
+your filesystem. This "disk" is actually stored as one big file in the file
+system, so that you can save data in a <strong>disk image</strong> and then retrieve it
+later. In addition, we will provide you with some sample disk images that
+you can experiment with to test your filesystem.  Just like a real disk,
+the emulator only allows operations on entire disk blocks of <code>4 KB</code>
+(<code>BLOCK_SIZE</code>). You cannot read or write any smaller unit than than
+that. The primary challenge of building a filesystem is converting the
+user's requested operations on arbitrary amounts of data into operations on
+fixed block sizes.</p>
+<p>The interface to the simulated disk is given in <code>include/sfs/disk.h</code>:</p>
+
+
+<br>
+<img src="./Project 06_ Simple File System_files/code1.png"/ width="50%">
+<br><br>
+
+<p>Before performing any sort of operation on the disk, you must call
+<code>Disk.open()</code> method and specify a (real) disk image for storing the disk
+data, and the number of blocks in the simulated disk. If this function is
+called on a disk image that already exists, the contained data will not be
+changed.  When you are done using the disk, the destructor will
+automatcally release the file.  Opening the disk image is already done for
+you in the shell, so you should not have to change this.</p>
+<p>Once the disk is open, you may call <code>Disk.size()</code> to discover the number of
+blocks on the disk. As the names suggest, <code>Disk.read()</code> and <code>Disk.write()</code>
+read and write one block of data on the disk. Notice that the first
+argument is a block number, so a call to <code>Disk.read(0, data)</code> reads the
+first <code>4KB</code> of data on the disk, and <code>Disk.read(1,data)</code> reads the next
+<code>4KB</code> block of data on the disk. Every time that you invoke a read or a
+write, you must ensure that data points to a full <code>4KB</code> of memory.</p>
+<p>Additionally, you can register and unregister a disk as mounted by calling
+the <code>Disk.mount()</code>  and <code>Disk.unmount()</code> methods respectively.  The
+<code>Disk.mounted()</code> method returns whether or not the disk has been registerd
+as mounted.</p>
+<p>Note that the disk has a few programming conveniences that a real disk
+would not. A real disk is rather finicky -- if you send it invalid
+commands, it will likely crash the system or behave in other strange ways.
+This simulated disk is more "helpful." If you send it an invalid command,
+it will halt the program with an error message. For example, if you attempt
+to read or write a disk block that does not exist, it will throw an
+exception.</p>
+<h3>File System</h3>
+<p>Using the existing <strong>disk emulator</strong> described above, you will build a
+    working <strong>file system</strong>.  Take note that we have already constructed
+    the interface to the filesystem and provided some skeleton code. The
+    interface is given in <code>include/sfs/fs.h</code>:</p>
+
+<img src="./Project 06_ Simple File System_files/code2.png" width="50%"/>
+
+
+
+<p>The various methods must work as follows:</p>
+<blockquote>
+<p>A. <code>void (*debug)(Disk *disk)</code></p>
+</blockquote>
+<p>This method scans a mounted filesystem and reports on how the inodes
+and blocks are organized. Your output from this method should be similar to
+the following:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>$ ./bin/sfssh data/image.5 <span style="color: #666666">5</span>
+sfs&gt; debug
+SuperBlock:
+    magic number is valid
+    <span style="color: #666666">5</span> blocks
+    <span style="color: #666666">1</span> inode blocks
+    <span style="color: #666666">128</span> inodes
+Inode <span style="color: #666666">1</span>:
+    size: <span style="color: #666666">965</span> bytes
+    direct blocks: <span style="color: #666666">2</span>
+</pre></div>
+
+
+<blockquote>
+<p>B. <code>bool (*format)(Disk *disk)</code></p>
+</blockquote>
+<p>This method Creates a new filesystem on the disk, destroying any
+data already present.  It should set aside ten percent of the blocks for
+inodes, clear the inode table, and write the superblock.  It must return
+<code>true</code> on success, <code>false</code> otherwise.</p>
+<p><strong>Note</strong>: formatting a filesystem does not cause it to be mounted. Also, an
+attempt to format an already-mounted disk should do nothing and return
+failure.</p>
+<blockquote>
+<p>C. <code>bool (*mount)(Disk *disk)</code></p>
+</blockquote>
+<p>This method examines the disk for a filesystem. If one is present, read the
+superblock, build a free block bitmap, and prepare the filesystem for use.
+Return <code>true</code> on success, <code>false</code> otherwise.</p>
+<p><strong>Note</strong>: a successful mount is a pre-requisite for the remaining calls.</p>
+<blockquote>
+<p>D. <code>size_t (*create)()</code></p>
+</blockquote>
+<p>This method Creates a new <strong>inode</strong> of zero length. On success, return the
+<code>inumber</code>.  On failure, return <code>-1</code>.</p>
+<blockquote>
+<p>E. <code>bool    (*removeInode)(size_t inumber)</code></p>
+</blockquote>
+<p>This method removes the <strong>inode</strong> indicated by the <code>inumber</code>.  It should
+release all data and indirect blocks assigned to this <strong>inode</strong> and return
+them to the free block map. On success, it returns <code>true</code>. On failure, it
+returns <code>false</code>.</p>
+<blockquote>
+<p>F. <code>size_t (*stat)(size_t inumber)</code></p>
+</blockquote>
+<p>This method returns the logical size of the given <code>inumber</code>, in bytes. Note
+that zero is a valid logical size for an <strong>inode</strong>. On failure, it returns
+<code>-1</code>.</p>
+<blockquote>
+<p>G. <code>size_t (*readInode)(size_t inumber, char *data, size_t length, size_t offset)</code></p>
+</blockquote>
+<p>This method reads data from a valid <strong>inode</strong>.  It then copies <code>length</code>
+bytes from the data blocks of the <strong>inode</strong> into the <code>data</code> pointer,
+starting at <code>offset</code> in the <strong>inode</strong>.  It should return the total number
+of bytes read. If the given <code>inumber</code> is invalid, or any other error is
+encountered, the method returns <code>-1</code>.</p>
+<p><strong>Note</strong>: the number of bytes actually read could be smaller than the
+number of bytes requested, perhaps if the end of the <strong>inode</strong> is reached.</p>
+<blockquote>
+<p>H. <code>size_t (*writeInode)(size_t inumber, char *data, size_t length, size_t offset)</code></p>
+</blockquote>
+<p>This method writes data to a valid <strong>inode</strong> by copying <code>length</code> bytes from
+the pointer <code>data</code> into the data blocks of the <strong>inode</strong> starting at
+<code>offset</code> bytes.  It will allocate any necessary direct and indirect blocks
+in the process.  Afterwards, it returns the number of bytes actually
+written.  If the given <code>inumber</code> is invalid, or any other error is
+encountered, return <code>-1</code>.</p>
+<p><strong>Note</strong>: the number of bytes actually written could be smaller than the
+number of bytes request, perhaps if the disk becomes full.</p>
+<p>It's quite likely that the <strong>File System</strong>  will need additional
+internal member variables in order to keep track of the currently mounted
+filesystem. For example, you will certainly need a variable to keep track
+of the current free block bitmap, and perhaps other items as well.  Feel
+free to modify the <code>include/sfs/fs.h</code> to include these additional
+bookkeeping items.</p>
+<h4>Implementation Notes</h4>
+<p>Your job is to implement <strong>SimpleFS</strong> as described above by filling in the
+implementation of <code>src/library/fs.c</code>.  You do not need to change any
+other code modules. We have already created some sample data structures to
+get you started. These can be found in <code>include/sfs/fs.h</code>. To begin with,
+we have defined a number of common constants that you will use.  Most of
+these should be self explanatory:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span><span style="color: #008000; font-weight: bold">const</span> <span style="color: #B00040">uint32_t</span> MAGIC_NUMBER       <span style="color: #666666">=</span> <span style="color: #666666">0xf0f03410</span>;
+<span style="color: #008000; font-weight: bold">const</span> <span style="color: #B00040">uint32_t</span>INODES_PER_BLOCK   <span style="color: #666666">=</span> <span style="color: #666666">128</span>;
+<span style="color: #008000; font-weight: bold">const</span> <span style="color: #B00040">uint32_t</span> POINTERS_PER_INODE <span style="color: #666666">=</span> <span style="color: #666666">5</span>;
+<span style="color: #008000; font-weight: bold">const</span> <span style="color: #B00040">uint32_t</span> POINTERS_PER_BLOCK <span style="color: #666666">=</span> <span style="color: #666666">1024</span>;
+</pre></div>
+
+
+<p>Note that <code>POINTERS_PER_INODE</code> is the number of direct pointers in each
+inode structure, while <code>POINTERS_PER_BLOCK</code> is the number of pointers to be
+found in an indirect block.</p>
+<p>The superblock and inode structures are easily translated from the pictures
+above:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span><span style="color: #008000; font-weight: bold">struct</span> SuperBlock {         <span style="color: #408080; font-style: italic">// Superblock structure</span>
+    <span style="color: #B00040">uint32_t</span> MagicNumber;   <span style="color: #408080; font-style: italic">// File system magic number</span>
+    <span style="color: #B00040">uint32_t</span> Blocks;        <span style="color: #408080; font-style: italic">// Number of blocks in file system</span>
+    <span style="color: #B00040">uint32_t</span> InodeBlocks;   <span style="color: #408080; font-style: italic">// Number of blocks reserved for inodes</span>
+    <span style="color: #B00040">uint32_t</span> Inodes;        <span style="color: #408080; font-style: italic">// Number of inodes in file system</span>
+};
+
+<span style="color: #008000; font-weight: bold">struct</span> Inode {              <span style="color: #408080; font-style: italic">// Inode structure</span>
+    <span style="color: #B00040">uint32_t</span> Valid;         <span style="color: #408080; font-style: italic">// Whether or not inode is valid</span>
+    <span style="color: #B00040">uint32_t</span> Size;          <span style="color: #408080; font-style: italic">// Size of file</span>
+    <span style="color: #B00040">uint32_t</span> Direct[POINTERS_PER_INODE]; <span style="color: #408080; font-style: italic">// Direct pointers</span>
+    <span style="color: #B00040">uint32_t</span> Indirect;      <span style="color: #408080; font-style: italic">// Indirect pointer</span>
+};
+</pre></div>
+
+
+<p>Note carefully that many inodes can fit in one disk block. A <code>4KB</code> chunk of
+memory containing <code>128</code> inodes would look like this:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>Inode       Inodes[INODES_PER_BLOCK];
+</pre></div>
+
+
+<p>Each indirect block is just a big array of <code>1024</code> integers, each pointing
+to another disk block. So, a <code>4KB</code> chunk of memory corresponding to an
+indirect block would look liks this:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span><span style="color: #B00040">uint32_t</span>    Pointers[POINTERS_PER_BLOCK];
+</pre></div>
+
+
+<p>Finally, each data block is just raw binary data used to store the partial
+contents of a file. A data block can be specified as simply an array for
+<code>4096</code> bytes:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span><span style="color: #B00040">char</span>        Data[BLOCK_SIZE];
+</pre></div>
+
+
+<p>Because a raw <code>4 KB</code> disk block can be used to represent four different
+kinds of data: a superblock, a block of <code>128</code> inodes, an indirect pointer
+block, or a plain data block,  we can declare a union of each of our four
+different data types.  A union looks like a struct, but forces all of its
+elements to share the same memory space. You can think of a union as
+several different types, all overlaid on top of each other:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span><span style="color: #008000; font-weight: bold">union</span> Block {
+    SuperBlock  Super;                          <span style="color: #408080; font-style: italic">// Superblock</span>
+    Inode       Inodes[INODES_PER_BLOCK];       <span style="color: #408080; font-style: italic">// Inode block</span>
+    <span style="color: #B00040">uint32_t</span>    Pointers[POINTERS_PER_BLOCK];   <span style="color: #408080; font-style: italic">// Pointer block</span>
+    <span style="color: #B00040">char</span>        Data[BLOCK_SIZE];         <span style="color: #408080; font-style: italic">// Data block</span>
+};
+</pre></div>
+
+
+<p>Note that the size of an <code>Block</code> union will be exactly <code>4KB</code>: the size of
+the largest members of the union. To declare a <code>Block</code> variable:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>Block block;
+</pre></div>
+
+
+<p>Now, we may use <code>Disk.read()</code> to load in the raw data from block zero. We
+give <code>Disk.read()</code> the variable block.data, which looks like an array of
+characters:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>Disk.read(<span style="color: #666666">0</span>, block.Data);
+</pre></div>
+
+
+<p>But, we may interpret that data as if it were a struct superblock by
+accessing the super part of the union. For example, to extract the magic
+number of the super block, we might do this:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>x <span style="color: #666666">=</span> block.Super.MagicNumber;
+</pre></div>
+
+
+<p>On the other hand, suppose that we wanted to load disk block <code>59</code>, assume
+that it is an indirect block, and then examine the <code>4th</code> pointer. Again, we
+would use <code>Disk.read()</code> to load the raw data:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>Disk.read(<span style="color: #666666">59</span>, block.Data);
+</pre></div>
+
+
+<p>But then use the pointer part of the union like so:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>x <span style="color: #666666">=</span> block.Pointers[<span style="color: #666666">4</span>];
+</pre></div>
+
+
+<p>The union offers a convenient way of viewing the same data from multiple
+perspectives. When we load data from the disk, it is just a <code>4 KB</code> raw
+chunk of data (<code>block.Data</code>). But, once loaded, the filesystem layer knows
+that this data has some structure. The filesystem layer can view the same
+data from another perspective by choosing another field in the union.</p>
+<h4>General Advice</h4>
+<ol>
+<li>
+<p><strong>Implement the functions roughly in order</strong>. We have deliberately
+presented the functions of the filesystem interface in order to difficulty.
+Implement <code>debug</code>, <code>format</code>, and <code>mount</code> first. Make sure that you are able
+to access the sample disk images provided. Then, perform creation and
+deletion of inodes without worrying about data blocks. Implement reading
+and test again with disk images. If everything else is working, then
+attempt write.</p>
+</li>
+<li>
+<p><strong>Divide and conquer</strong>. Work hard to factor out common actions into
+simple functions. This will dramatically simplify your code. For example,
+you will often need to load and save individual inode structures by number.
+This involves a fiddly little computation to transform an inumber into a
+block number, and so forth. So, make two little methods to do just that:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span><span style="color: #B00040">bool</span>    <span style="color: #0000FF">load_inode</span>(<span style="color: #B00040">size_t</span> inumber, Inode <span style="color: #666666">*</span>node);
+<span style="color: #B00040">bool</span>    <span style="color: #0000FF">save_inode</span>(<span style="color: #B00040">size_t</span> inumber, Inode <span style="color: #666666">*</span>node);
+</pre></div>
+
+
+<p>Now, everywhere that you need to load or save an inode structure, call
+these functions.
+You may also wish to have functions that help you manage and search the
+free block map:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span><span style="color: #B00040">void</span>    <span style="color: #0000FF">initialize_free_blocks</span>();
+<span style="color: #B00040">ssize_t</span> <span style="color: #0000FF">allocate_free_block</span>();
+</pre></div>
+
+
+<p>Anytime that find yourself writing very similar code over and over
+again, factor it out into a smaller function.</p>
+</li>
+<li>
+<p><strong>Test boundary conditions</strong>. We will certainly test your code by
+probing its boundaries. Make sure that you test and fix boundary conditions
+before handing in. For example, what happens if <code>FileSystem.create</code>
+discovers that the inode table is full? It should cleanly return with an
+error code. It certainly should not crash the program or mangle the disk!
+Think critically about other possible boundary conditions such as the end
+of a file or a full disk.</p>
+</li>
+<li>
+<p><strong>Don't worry about performance</strong>. You will be graded on correctness,
+not performance. In fact, during the course of this assignment, you will
+discover that a simple file access can easily erupt into tens or hundreds
+of single disk accesses. Understand why this happens, but don't worry about
+optimization.</p>
+</li>
+</ol>
+<h3>Shell</h3>
+<p>We have provided for you a simple shell that will be used to exercise your
+filesystem and the simulated disk. When grading your work, we will use the
+shell to test your code, so be sure to test extensively. To use the shell,
+simply run <code>bin/sfssh</code> with the name of a disk image, and the number of
+blocks in that image. For example, to use the <code>image.5</code> example given
+below, run:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>$ ./bin/sfssh image.5 <span style="color: #666666">5</span>
+</pre></div>
+
+
+<p>Or, to start with a fresh new disk image, just give a new filename and
+number of blocks:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>$ ./bin/sfssh newdisk <span style="color: #666666">25</span>
+</pre></div>
+
+
+<p>Once the shell starts, you can use the <code>help</code> command to list the available
+commands:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>sfs&gt; <span style="color: #008000">help</span>
+Commands are:
+    format
+    mount
+    debug
+    create
+    remove  &lt;inode&gt;
+    cat     &lt;inode&gt;
+    stat    &lt;inode&gt;
+    copyin  &lt;file&gt; &lt;inode&gt;
+    copyout &lt;inode&gt; &lt;file&gt;
+    <span style="color: #008000">help</span>
+    quit
+    <span style="color: #008000">exit</span>
+</pre></div>
+
+
+<p>Most of the commands correspond closely to the filesystem interface. For
+example, <code>format</code>, <code>mount</code>, <code>debug</code>, <code>create</code> and <code>remove</code> call the
+corresponding methods in the <code>FileSystem</code>. Make sure that you call
+these functions in a sensible order. A filesystem must be formatted once
+before it can be used.  Likewise, it must be mounted before being read or
+written.</p>
+<p>The complex commands are <code>cat</code>, <code>copyin</code>, and <code>copyout</code>. <code>cat</code> reads an
+entire file out of the filesystem and displays it on the console, just like
+the Unix command of the same name. <code>copyin</code> and <code>copyout</code> copy a file from
+the local Unix filesystem into your emulated filesystem. For example, to
+    copy the dictionary file into inode <code>10</code> in your filesystem, do the
+    following:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>sfs&gt; copyin /usr/share/dict/words <span style="color: #666666">10</span>
+</pre></div>
+
+
+<p>Note that these three commands work by making a large number of calls to
+<code>FileSystem.read()</code> and <code>FileSystem.write()</code> for each file to be copied.</p>
+<h3>Tests</h3>
+<p>To help you verify the correctness of your <strong>SimpleFS</strong> implementation, you
+are provided with the following disk images:</p>
+<ul>
+<li><a href="https://gitlab.com/nd-cse-30341-fa17/cse-30341-fa17-project06/blob/master/data/image.5">image.5</a></li>
+<li><a href="https://gitlab.com/nd-cse-30341-fa17/cse-30341-fa17-project06/blob/master/data/image.20">image.20</a></li>
+<li><a href="https://gitlab.com/nd-cse-30341-fa17/cse-30341-fa17-project06/blob/master/data/image.200">image.200</a></li>
+</ul>
+<p>Likewise, you are also provided a set of test scripts in the <code>tests</code>
+directory that will utilize these disk images to test your file system.
+You can run all the tests by simply doing <code>make test</code>:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>$ make <span style="color: #008000">test</span>
+Testing cat on data/image.5 ... Success
+Testing cat on data/image.20 ... Success
+Testing copyin in /tmp/tmp.8mbVjt9XfO/image.5 ... Success
+Testing copyin in /tmp/tmp.8mbVjt9XfO/image.20 ... Success
+Testing copyin in /tmp/tmp.8mbVjt9XfO/image.200 ... Success
+Testing copyout in data/image.5 ... Success
+Testing copyout in data/image.20 ... Success
+Testing copyout in data/image.200 ... Success
+Testing create in data/image.5.create ... Success
+Testing debug on data/image.5 ... Success
+Testing debug on data/image.20 ... Success
+Testing debug on data/image.200 ... Success
+Testing format on data/image.5.formatted ... Success
+Testing format on data/image.20.formatted ... Success
+Testing format on data/image.200.formatted ... Success
+Testing mount on data/image.5 ... Success
+Testing mount-mount on data/image.5 ... Success
+Testing mount-format on data/image.5 ... Success
+Testing bad-mount on /tmp/tmp.BZoOChcGKj/image.5 ... Success
+Testing bad-mount on /tmp/tmp.BZoOChcGKj/image.5 ... Success
+Testing bad-mount on /tmp/tmp.BZoOChcGKj/image.5 ... Success
+Testing bad-mount on /tmp/tmp.BZoOChcGKj/image.5 ... Success
+Testing bad-mount on /tmp/tmp.BZoOChcGKj/image.5 ... Success
+Testing remove in /tmp/tmp.p00nKXt3Ut/image.5 ... Success
+Testing remove in /tmp/tmp.p00nKXt3Ut/image.5 ... Success
+Testing remove in /tmp/tmp.p00nKXt3Ut/image.20 ... Success
+Testing stat on data/image.5 ... Success
+Testing stat on data/image.20 ... Success
+Testing stat on data/image.200 ... Success
+Testing valgrind on /tmp/tmp.Io2oaaqjD0/image.200 ... Success
+</pre></div>
+
+
+<div class="alert alert-success">
+<h4> Reads / Writes</h4>
+<p>Depending on how you implement the various functions, <strong>the number of disk
+reads and writes may not match</strong>.  As long as you are not too far above the
+numbers in the test case, then you will be given credit.</p>
+</div>
+<div class="alert alert-danger">
+<h4>Idempotent</h4>
+<p>The provided test scripts require that the provided disk images are in
+their original state.  Therefore, if you make any modifications to them
+while developing and testing, you should make sure you restore them to
+their original state before attempting the tests.  Since we are using
+[git], you can simply do the following to retrieve the original version of
+a disk image:</p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%"><span></span>$ git checkout data/image.5
+</pre></div>
+
+
+</div>
+<h3>Demonstration</h3>
+<p>As part of your grade, you will need to <strong>present</strong> your <strong>file system</strong> to
+a member of the instructional staff where you will <strong>demonstrate</strong> the
+correctness of your <code>FileSystem</code>.</p>
+
+<h2>Grading</h2>
+	</div> <!-- /container -->
+
+	<!-- Bootstrap core JavaScript
+	================================================== -->
+	<!-- Placed at the end of the document so the pages load faster -->
+	<script src="./Project 06_ Simple File System_files/jquery.min.js"></script>
+	<script src="./Project 06_ Simple File System_files/bootstrap.min.js"></script>
+	
+	
+    
+
+
+<div id="blockColorblindContent"><svg id="colorBlindSVG" version="1.1" xmlns="http://www.w3.org/2000/svg" baseProfile="full"> <filter id="protanopia"> <fecolormatrix type="matrix" values="0.567, 0.433, 0, 0, 0, 0.558, 0.442, 0, 0, 0, 0, 0.242, 0.758, 0, 0, 0, 0, 0, 1, 0" in="SourceGraphic"></fecolormatrix> </filter> <filter id="protanomaly"> <fecolormatrix type="matrix" values="0.817,0.183,0,0,0 0.333,0.667,0,0,0 0,0.125,0.875,0,0 0,0,0,1,0" in="SourceGraphic"></fecolormatrix> </filter> <filter id="deuteranopia"> <fecolormatrix type="matrix" values="0.625,0.375,0,0,0 0.7,0.3,0,0,0 0,0.3,0.7,0,0 0,0,0,1,0" in="SourceGraphic"></fecolormatrix> </filter> <filter id="deuteranomaly"> <fecolormatrix type="matrix" values="0.8,0.2,0,0,0 0.258,0.742,0,0,0 0,0.142,0.858,0,0 0,0,0,1,0" in="SourceGraphic"></fecolormatrix> </filter> <filter id="tritanopia"> <fecolormatrix type="matrix" values="0.95,0.05,0,0,0 0,0.433,0.567,0,0 0,0.475,0.525,0,0 0,0,0,1,0" in="SourceGraphic"></fecolormatrix> </filter> <filter id="tritanomaly"> <fecolormatrix type="matrix" values="0.967,0.033,0,0,0 0,0.733,0.267,0,0 0,0.183,0.817,0,0 0,0,0,1,0" in="SourceGraphic"></fecolormatrix> </filter> <filter id="achromatopsia"> <fecolormatrix type="matrix" values="0.299,0.587,0.114,0,0 0.299,0.587,0.114,0,0 0.299,0.587,0.114,0,0 0,0,0,1,0" in="SourceGraphic"></fecolormatrix> </filter> <filter id="achromatomaly"> <fecolormatrix type="matrix" values="0.618,0.320,0.062,0,0 0.163,0.775,0.062,0,0 0.163,0.320,0.516,0,0 0,0,0,1,0" in="SourceGraphic"></fecolormatrix> </filter> </svg></div></body></html>
