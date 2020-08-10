@@ -53,3 +53,25 @@ typedef struct Disk {
 
 
 
+
+
+const size_t BLOCK_SIZE = 4096;
+
+typedef struct Disk {
+    int	    FileDescriptor; 
+    size_t  Blocks;	    
+    size_t  Reads;	   
+    size_t  Writes;	   
+    size_t  Mounts;	   
+    void (*sanity_check)(struct Disk * self,int blocknum, char *data);
+    void (*DiskDestructor)(struct Disk * selft);
+    void (*open)(struct Disk * self,const char *path, size_t nblocks);
+    size_t (*size)(struct Disk * self);
+    bool (*mounted)(struct Disk * self);
+    void (*mount)(struct Disk * self);
+    void (*unmount)(struct Disk * self);
+    void (*readDisk)(struct Disk * self,int blocknum, char *data);
+    void (*writeDisk)(struct Disk * self,int blocknum, char *data);
+}Disk;
+
+

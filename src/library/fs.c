@@ -40,6 +40,8 @@ bool format(Disk *disk) {
     return true;
 }
 
+
+
 // Mount file system -----------------------------------------------------------
 
 bool mount(Disk *disk) {
