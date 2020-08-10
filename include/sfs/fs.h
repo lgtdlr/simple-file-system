@@ -24,6 +24,7 @@ typedef struct Inode {
     uint32_t Size;		// Size of file
     uint32_t Direct[POINTERS_PER_INODE]; // Direct pointers
     uint32_t Indirect;	// Indirect pointer
+    uint32_t DoubleIndirect;	// Double Indirect pointer
 }Inode;
 
 typedef union Block {
