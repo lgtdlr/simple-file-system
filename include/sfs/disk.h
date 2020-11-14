@@ -8,6 +8,7 @@
 // Number of bytes per block
 #define BLOCK_SIZE  4096
 
+
 typedef struct Disk {
     int	    FileDescriptor; // File descriptor of disk image
     size_t  Blocks;	    // Number of blocks in disk image

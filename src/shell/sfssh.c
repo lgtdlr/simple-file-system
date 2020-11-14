@@ -224,7 +224,7 @@ void do_stat(Disk *disk, FileSystem *fs, int args, char *arg1, char *arg2) {
     size_t bytes   = fs->stat(inumber);
     if (bytes >= 0) {
     	printf("inode %d has size %zd bytes.\n", inumber, bytes);
-    } else {
+   } else {
     	printf("stat failed!\n");
     }
 }
@@ -297,16 +297,16 @@ bool copyin(FileSystem *fs, const char *path, size_t inumber) {
 	size_t actual = fs->writeInode(inumber, buffer, result, offset);
 	if (actual < 0) {
 	    fprintf(stderr, "fs->write returned invalid result %d\n", actual);
-	    break;
+            break;
 	}
 	offset += actual;
 	if (actual != result) {
 	    fprintf(stderr, "fs->write only wrote %d bytes, not %zd bytes\n", actual, result);
-	    break;
+            break;
 	}
     }
 
     printf("%zd bytes copied\n", offset);
-    fclose(stream);
+     fclose(stream);
     return true;
 }

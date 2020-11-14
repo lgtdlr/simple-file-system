@@ -46,8 +46,13 @@ void openDisk(struct Disk * self,const char *path, size_t nblocks) {
 
 void DiskDestructor(struct Disk * self) {
     if (self->FileDescriptor > 0) {
+<<<<<<< HEAD
     	printf("%d disk block reads\n", self->Reads);
     	printf("%d disk block writes\n", self->Writes);
+=======
+    	printf("%lu disk block reads\n", self->Reads);
+    	printf("%lu disk block writes\n", self->Writes);
+>>>>>>> a82be2a9f24c3230eb8c5a608efc11a06c7067a1
     	close(self->FileDescriptor);
     	self->FileDescriptor = 0;
     }
