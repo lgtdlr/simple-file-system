@@ -122,8 +122,9 @@ int main(int argc, char *argv[]) {
 	    printf("Unknown command: %s", line);
 	    printf("Type 'help' for a list of commands.\n");
 	}
+	
     }
-
+disk->DiskDestructor(disk);
     return EXIT_SUCCESS;
 }
 
@@ -222,7 +223,7 @@ void do_stat(Disk *disk, FileSystem *fs, int args, char *arg1, char *arg2) {
 
     size_t inumber = atoi(arg1);
     size_t bytes   = fs->stat(inumber);
-    if (bytes >= 0) {
+    if ((int)bytes >= 0) {
     	printf("inode %d has size %zd bytes.\n", inumber, bytes);
    } else {
     	printf("stat failed!\n");
