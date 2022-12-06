@@ -9,39 +9,42 @@
 #include <string.h>
 #include <stdbool.h>
 
-#define min(X,Y) (((X) < (Y)) ? (X) : (Y))
-#define max(X,Y) (((X) > (Y)) ? (X) : (Y))
 
-//Global Variables
+// Macros
+#define CEILING_POS(X) ((X-(int)(X)) > 0 ? (int)(X+1) : (int)(X))
+#define CEILING_NEG(X) ((int)(X))
+#define CEILING(X) ( ((X) > 0) ? CEILING_POS(X) : CEILING_NEG(X) )
+
+// Mounted file system
 size_t Blocks;
 size_t InodeBlocks;
 size_t Inodes;
 Disk* mounted_disk;
-bool *bitmap;
+bool *free_block_bitmap;
 
-//Auxiliary Functions
+// Helper Functions
+ssize_t allocate_free_block();
 bool save_inode(size_t inumber, Inode *inode);
 bool load_inode(size_t inumber, Inode *inode);
-ssize_t allocate_free_block();
-float ceiling(float x);
 
 // Debug file system -----------------------------------------------------------
 
 // This method scans a mounted filesystem and reports on how the inodes and blocks are organized. Your output from this method should be similar to the following:
 void debug(Disk *disk) {
-    Block super_block;
+
 
     // Read Superblock
-    disk->readDisk(disk, 0, super_block.Data);
+    Block superBlock;
+    disk->readDisk(disk, 0, superBlock.Data);
 
     printf("SuperBlock:\n");
-    printf("    magic number is %s\n", (super_block.Super.MagicNumber == MAGIC_NUMBER ? "valid" : "invalid"));
-    printf("    %u blocks\n", super_block.Super.Blocks);
-    printf("    %u inode blocks\n", super_block.Super.InodeBlocks);
-    printf("    %u inodes\n", super_block.Super.Inodes);
+    printf("    magic number is %s\n",  (superBlock.Super.MagicNumber == MAGIC_NUMBER ? "valid" : "invalid"));
+    printf("    %u blocks\n", superBlock.Super.Blocks);
+    printf("    %u inode blocks\n", superBlock.Super.InodeBlocks);
+    printf("    %u inodes\n", superBlock.Super.Inodes);
 
     // Read Inode blocks
-    int inodeBlocks = super_block.Super.InodeBlocks;
+    int inodeBlocks = superBlock.Super.InodeBlocks;
 
     if (inodeBlocks == 0)
         return;
@@ -77,6 +80,7 @@ void debug(Disk *disk) {
                 }
                 printf("\n");
             }
+
         }
     }
 }
@@ -87,24 +91,27 @@ void debug(Disk *disk) {
 //return true on success, false otherwise.
 //Note: formatting a filesystem does not cause it to be mounted. Also, an attempt to format an already-mounted disk should do nothing and return failure.
 bool format(Disk *disk) {
+
+    // Check if disk is mounted
     if (disk->mounted(disk)) {
         return false;
     }
 
     // Write superblock
-    Block block;
-    memset(block.Data, 0, BLOCK_SIZE);
-    block.Super.MagicNumber = MAGIC_NUMBER;
-    block.Super.Blocks = disk->Blocks;
-    block.Super.InodeBlocks = (u_int32_t)ceiling((float)disk->Blocks/10);
-    block.Super.Inodes = block.Super.InodeBlocks * INODES_PER_BLOCK;
+    Block superBlock;
+    memset(superBlock.Data, 0, BLOCK_SIZE);
+    superBlock.Super.MagicNumber = MAGIC_NUMBER;
+    superBlock.Super.Blocks = disk->Blocks;
+    superBlock.Super.InodeBlocks = (u_int32_t)CEILING((float)disk->Blocks/10);
+    superBlock.Super.Inodes = superBlock.Super.InodeBlocks * INODES_PER_BLOCK;
 
-    disk->writeDisk(disk, 0, block.Data);
+    disk->writeDisk(disk, 0, superBlock.Data);
 
     // Clear all other blocks
-    char empty[BLOCK_SIZE] = { 0 };
-    for (int i = 1; i < block.Super.Blocks; i++) {
-        disk->writeDisk(disk, i, empty);
+    Block emptyBlock;
+    memset(emptyBlock.Data, 0, BLOCK_SIZE);
+    for (u_int32_t i = 1; i < disk->Blocks; i++) {
+        disk->writeDisk(disk, i, emptyBlock.Data);
     }
 
     return true;
@@ -112,23 +119,29 @@ bool format(Disk *disk) {
 
 // Mount file system -----------------------------------------------------------
 
-// This method examines the disk for a filesystem. If one is present, read the superblock, build a free block bitmap, and prepare the filesystem for use. Return true on success, false otherwise.
+// This method examines the disk for a filesystem. If one is present, read the superblock, build a free block free_block_bitmap, and prepare the filesystem for use. Return true on success, false otherwise.
 // Note: a successful mount is a pre-requisite for the remaining calls.
 // If a filesystem is already mounted, this method should do nothing and return failure.
 bool mount(Disk *disk) {
-    if(disk->mounted(disk)) return false;
+
+    // Check if disk is mounted
+    if (disk->mounted(disk)) {
+        return false;
+    }
 
     // Read superblock
     Block block;
     disk->readDisk(disk, 0, block.Data);
 
-    // Set device and mount
-    if(block.Super.Inodes != block.Super.InodeBlocks * INODES_PER_BLOCK ||
+    // Check if superblock is valid
+    if (block.Super.Inodes != block.Super.InodeBlocks * INODES_PER_BLOCK ||
        block.Super.MagicNumber != MAGIC_NUMBER || block.Super.Blocks < 0 ||
-       block.Super.InodeBlocks != ceiling(0.1 * block.Super.Blocks)){
+       block.Super.InodeBlocks != CEILING(0.1 * block.Super.Blocks)){
         return false;
     }
 
+    // Set device and mount
+    mounted_disk = disk;
     disk->mount(disk);
 
     // Copy metadata
@@ -137,20 +150,20 @@ bool mount(Disk *disk) {
     Inodes = block.Super.Inodes;
     mounted_disk = disk;
 
-    // Allocate free block bitmap
-    bitmap = (bool*)malloc(Blocks * sizeof(bool));
+    // Allocate free block free_block_bitmap
+    free_block_bitmap = (bool*)malloc(Blocks * sizeof(bool));
 
     // Set all blocks as free
     for (int i = 0; i < Blocks; i++) {
-        bitmap[i] = true;
+        free_block_bitmap[i] = true;
     }
 
     //Mark superblock as used
-    bitmap[0] = false;
+    free_block_bitmap[0] = false;
 
     //Mark inode blocks as used
     for (int i = 1; i <= InodeBlocks; i++) {
-        bitmap[i] = false;
+        free_block_bitmap[i] = false;
     }
 
     //Mark inodes as used
@@ -160,21 +173,21 @@ bool mount(Disk *disk) {
 
         for (u_int32_t j = 0; j < INODES_PER_BLOCK; j++) { //Read Inodes
             Inode current_inode = InodeBlock.Inodes[j];
-            if (current_inode.Valid == 0) {
+            if (!current_inode.Valid) {
                 continue;
             }
             for (u_int32_t k = 0; k < POINTERS_PER_INODE; k++) { //Read Direct Blocks
                 if (current_inode.Direct[k]) {
-                    bitmap[current_inode.Direct[k]] = false;
+                    free_block_bitmap[current_inode.Direct[k]] = false;
                 }
             }
             if (current_inode.Indirect != 0) { //Read Indirect Blocks
-                bitmap[current_inode.Indirect] = false;
+                free_block_bitmap[current_inode.Indirect] = false;
                 Block indirectBlock;
                 disk->readDisk(disk, current_inode.Indirect, indirectBlock.Data);
                 for (u_int32_t k = 0; k < POINTERS_PER_BLOCK; k++) { //Read Indirect Data Blocks
                     if (indirectBlock.Pointers[k] != 0) {
-                        bitmap[indirectBlock.Pointers[k]] = false;
+                        free_block_bitmap[indirectBlock.Pointers[k]] = false;
                     }
                 }
             }
@@ -238,21 +251,21 @@ bool removeInode(size_t inumber) {
     // Free direct blocks
     for (u_int32_t i = 0; i < POINTERS_PER_INODE; i++) {
         if (inode.Direct[i] != 0) {
-            bitmap[inode.Direct[i]] = true;
+            free_block_bitmap[inode.Direct[i]] = true;
             inode.Direct[i] = 0;
         }
     }
 
     // Free indirect blocks
     if (inode.Indirect != 0) {
-        bitmap[inode.Indirect] = true;
+        free_block_bitmap[inode.Indirect] = true;
         inode.Indirect = 0;
 
         Block indirectBlock;
         mounted_disk->readDisk(mounted_disk, inode.Indirect, indirectBlock.Data);
         for (u_int32_t i = 0; i < POINTERS_PER_BLOCK; i++) {
             if (indirectBlock.Pointers[i] != 0) {
-                bitmap[indirectBlock.Pointers[i]] = true;
+                free_block_bitmap[indirectBlock.Pointers[i]] = true;
                 indirectBlock.Pointers[i] = 0;
             }
         }
@@ -291,6 +304,7 @@ size_t stat(size_t inumber) {
 // of bytes read. If the given inumber is invalid, or any other error is encountered, the method returns -1 .
 // Note: the number of bytes actually read could be smaller than the number of bytes requested, perhaps if the end of the inode is reached.
 size_t readInode(size_t inumber, char *data, size_t length, size_t offset) {
+
     // Load inode information
     Inode inode;
     if (!load_inode(inumber, &inode)) {
@@ -359,7 +373,7 @@ size_t writeInode(size_t inumber, char *data, size_t length, size_t offset) {
     size_t MAX_FILE_SIZE = BLOCK_SIZE * (POINTERS_PER_INODE * POINTERS_PER_BLOCK);
 
     //Adjust Length
-    length = min(length, MAX_FILE_SIZE - offset);
+    if(length > MAX_FILE_SIZE - offset) length = MAX_FILE_SIZE - offset;
     size_t startBlock = offset / BLOCK_SIZE;
     Block indirect;
 
@@ -416,12 +430,20 @@ size_t writeInode(size_t inumber, char *data, size_t length, size_t offset) {
         // and write either until the end of the block, or the whole request
         if(written == 0){
             writeOffset = offset % BLOCK_SIZE;
-            writeLength = min(BLOCK_SIZE - writeOffset, length);
+            if (length < BLOCK_SIZE - writeOffset) {
+                writeLength = length;
+            } else {
+                writeLength = BLOCK_SIZE - writeOffset;
+            }
         } else {
             // otherwise, start from the beginning, and write
             // either the whole block or the rest of the request
             writeOffset = 0;
-            writeLength = min(BLOCK_SIZE - 0, length - written);
+            if (length - written < BLOCK_SIZE) {
+                writeLength = length - written;
+            } else {
+                writeLength = BLOCK_SIZE;
+            }
         }
 
         char writeBuffer[BLOCK_SIZE];
@@ -437,7 +459,12 @@ size_t writeInode(size_t inumber, char *data, size_t length, size_t offset) {
     }
 
     //Update Inode size if Inode was modified
-    size_t newSize = max((size_t) inode.Size, written + offset);
+    size_t newSize;
+    if (written + offset > inode.Size) {
+        newSize = written + offset;
+    } else {
+        newSize = inode.Size;
+    }
     if(newSize != inode.Size){
         inode.Size = newSize;
         modifiedInode = true;
@@ -450,94 +477,64 @@ size_t writeInode(size_t inumber, char *data, size_t length, size_t offset) {
     return written;
 }
 
-bool save_inode(size_t inumber, Inode *inode) {
-
-
-    size_t blockNumber = 1 + inumber / INODES_PER_BLOCK;
-    size_t inodeOffset = inumber % INODES_PER_BLOCK;
-
-    if (inumber >= Inodes) {
-        return false;
-    } else {
-        Block block;
-        mounted_disk->readDisk(mounted_disk, blockNumber, block.Data);
-        block.Inodes[inodeOffset] = *inode;
-        mounted_disk->writeDisk(mounted_disk, blockNumber, block.Data);
-        return true;
-    }
-
-
-}
-
-bool load_inode(size_t inumber, Inode *inode) {
-    size_t blockNumber = 1 + (inumber / INODES_PER_BLOCK);
-    size_t inodeOffset = inumber % INODES_PER_BLOCK;
-
-    if (inumber >= Inodes) {
-        return false;
-    } else {
-        Block block;
-        mounted_disk->readDisk(mounted_disk, blockNumber, block.Data);
-        *inode = block.Inodes[inodeOffset];
-        return true;
-    }
-
-}
+// Helper functions ---------------------------------------------------------
 
 ssize_t allocate_free_block() {
     int block = -1;
-    for (unsigned int i = 0; i < Blocks; i++) {
-        if (bitmap[i]) {
-            bitmap[i] = 0;
+
+    // Find a free block
+    for (size_t i = 0; i < Blocks; i++) {
+        if (free_block_bitmap[i]) {
             block = i;
+            free_block_bitmap[i] = false;
             break;
         }
     }
 
-    // need to zero data block if we're allocating one
+    // Write free_block_bitmap to disk
     if (block != -1) {
-        char data[BLOCK_SIZE];
-        memset(data, 0, BLOCK_SIZE);
-        mounted_disk->writeDisk(mounted_disk, block,(char*) data);
+        Block zeroBlock;
+        memset(zeroBlock.Data, 0, BLOCK_SIZE);
+        mounted_disk->writeDisk(mounted_disk, block, zeroBlock.Data);
     }
 
     return block;
 }
 
-union float_int {
-    float f;
-    int i;
-};
+bool save_inode(size_t inumber, Inode *inode) {
 
-float ceiling(float x) {
-    union float_int val;
-    val.f = x;
-    int sign = val.i >> 31;
-    int exponent = ((val.i & 0x7fffffff) >> 23) - 127;
-    int mantissa = val.i & 0x7fffff;
-
-    if(exponent < 0){
-        if(x <= 0.0f) return 0.0f;
-        else return 1.0f;
-    }
-    else{
-        int mask=0x7fffff >> exponent;
-
-        if((mantissa & mask) == 0) return x;
-        else{
-            if(!sign){
-                mantissa += 1 << (23 - exponent);
-
-                if(mantissa & 0x800000){
-                    mantissa = 0;
-                    exponent++;
-                }
-            }
-            mantissa &= ~mask;
-        }
+    if (inumber >= Inodes) {
+        return false;
     }
 
-    val.i = (sign << 31) | ((exponent + 127) << 23) | mantissa;
+    // Find the block that contains the inode
+    size_t block = inumber / INODES_PER_BLOCK + 1;
 
-    return val.f;
+    // Read the block
+    Block blockData;
+    mounted_disk->readDisk(mounted_disk, block, blockData.Data);
+
+    // Copy the inode into the block
+    memcpy(blockData.Inodes + (inumber % INODES_PER_BLOCK), inode, sizeof(Inode));
+
+    // Write the block back to disk
+    mounted_disk->writeDisk(mounted_disk, block, blockData.Data);
+
+    return true;
+}
+
+bool load_inode(size_t inumber, Inode *inode) {
+
+    // Check if inumber is valid
+    if (inumber >= Inodes) {
+        return false;
+    }
+
+    // Load inode
+    Block block;
+    mounted_disk->readDisk(mounted_disk, (inumber / INODES_PER_BLOCK) + 1, block.Data);
+    *inode = block.Inodes[inumber % INODES_PER_BLOCK];
+
+    return true;
+
 }
