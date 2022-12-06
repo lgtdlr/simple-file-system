@@ -321,7 +321,7 @@ size_t readInode(size_t inumber, char *data, size_t length, size_t offset) {
         length = inode.Size - offset;
     }
 
-    // Read block and copy to data
+
     size_t startBlock = offset / BLOCK_SIZE;
 
     // Read block and copy to data
@@ -366,115 +366,107 @@ size_t readInode(size_t inumber, char *data, size_t length, size_t offset) {
 // Note: the number of bytes actually written could be smaller than the number of bytes request, perhaps if the disk becomes full.
 size_t writeInode(size_t inumber, char *data, size_t length, size_t offset) {
 
-    // Load inode
+    // Load inode information
     Inode inode;
-    if(!load_inode(inumber, &inode) || offset > inode.Size) return -1;
+    if (!load_inode(inumber, &inode)) {
+        return -1;
+    }
+    if (inode.Valid == 0) {
+        return -1;
+    }
+    if (offset > inode.Size - offset) {
+        return -1;
+    }
 
-    size_t MAX_FILE_SIZE = BLOCK_SIZE * (POINTERS_PER_INODE * POINTERS_PER_BLOCK);
+    size_t MAX_SIZE = POINTERS_PER_INODE * BLOCK_SIZE + POINTERS_PER_BLOCK * BLOCK_SIZE;
+    if (offset + length > MAX_SIZE) {
+        length = MAX_SIZE - offset;
+    }
 
-    //Adjust Length
-    if(length > MAX_FILE_SIZE - offset) length = MAX_FILE_SIZE - offset;
     size_t startBlock = offset / BLOCK_SIZE;
+    size_t endBlock = (offset + length) / BLOCK_SIZE;
+//    printf("startBlock: %ld, endBlock: %ld\n", startBlock, endBlock);
+
+    size_t bytes_written = 0;
     Block indirect;
 
-    bool readIndirect = false;
-    bool modifiedInode = false;
-    bool modifiedIndirect = false;
 
-    // Write block and copy to data
-    size_t written = 0;
-    for (size_t block = startBlock; written < length && block < POINTERS_PER_INODE + POINTERS_PER_BLOCK; block++) {
-        size_t blockToWrite;
-        if(block < POINTERS_PER_INODE){
-            //Direct Block
-            //Allocate block if necessary
-            if(inode.Direct[block] == 0){
-                ssize_t allocated_block = allocate_free_block();
-                if(allocated_block == -1) break;
-                inode.Direct[block] = allocated_block;
-                modifiedInode = true;
-            }
-            blockToWrite = inode.Direct[block];
-        } else {
-            //Indirect Block
+    // Direct blocks
+    for (size_t i = startBlock; i < endBlock + 1 && i < POINTERS_PER_INODE; i++ , startBlock++) {
+        Block block;
 
-            //Allocate Indirect block if necessary
-            if(inode.Indirect == 0){
-                ssize_t allocatedBlock = allocate_free_block();
-                if(allocatedBlock == -1) return written;
-                inode.Indirect = allocatedBlock;
-                modifiedIndirect = true;
-            }
-
-            //Read indirect block if it hasn't been read yet
-            if(!readIndirect){
-                mounted_disk->readDisk(mounted_disk, inode.Indirect, indirect.Data);
-                readIndirect = true;
-            }
-
-            //Allocate block if necessary
-            if(indirect.Pointers[block - POINTERS_PER_INODE] == 0){
-                ssize_t allocatedBlock = allocate_free_block();
-                if(allocatedBlock == -1) break;
-                indirect.Pointers[block - POINTERS_PER_INODE] = allocatedBlock;
-                modifiedIndirect = true;
-            }
-            blockToWrite = indirect.Pointers[block - POINTERS_PER_INODE];
+        if (inode.Direct[i] == 0) {
+            inode.Direct[i] = allocate_free_block();
         }
 
-        //Get the block (either direct or indirect)
-        size_t writeOffset;
-        size_t writeLength;
+        mounted_disk->readDisk(mounted_disk, inode.Direct[i], block.Data);
 
-        // if it's the first block written, have to start from an offset
-        // and write either until the end of the block, or the whole request
-        if(written == 0){
-            writeOffset = offset % BLOCK_SIZE;
-            if (length < BLOCK_SIZE - writeOffset) {
-                writeLength = length;
-            } else {
-                writeLength = BLOCK_SIZE - writeOffset;
-            }
-        } else {
-            // otherwise, start from the beginning, and write
-            // either the whole block or the rest of the request
-            writeOffset = 0;
-            if (length - written < BLOCK_SIZE) {
-                writeLength = length - written;
-            } else {
-                writeLength = BLOCK_SIZE;
-            }
+        size_t start = 0;
+        size_t end = BLOCK_SIZE;
+        if (i == startBlock) {
+            start = offset % BLOCK_SIZE;
         }
 
-        char writeBuffer[BLOCK_SIZE];
+        if (i == endBlock) {
+            end = (offset + length) % BLOCK_SIZE;
+        }
 
-        // if we're not writing the whole block, need to copy what's there
-        if(writeLength < BLOCK_SIZE)
-            mounted_disk->readDisk(mounted_disk, blockToWrite, writeBuffer);
+        for (size_t j = start; j < end; j++) {
+            block.Data[j] = data[bytes_written];
+            bytes_written++;
+        }
 
-        //Copy into buffer
-        memcpy(writeBuffer + writeOffset, data + written, writeLength);
-        mounted_disk->writeDisk(mounted_disk, blockToWrite, (char *) writeBuffer);
-        written += writeLength;
+        mounted_disk->writeDisk(mounted_disk, inode.Direct[i], block.Data);
+
     }
 
-    //Update Inode size if Inode was modified
-    size_t newSize;
-    if (written + offset > inode.Size) {
-        newSize = written + offset;
-    } else {
-        newSize = inode.Size;
-    }
-    if(newSize != inode.Size){
-        inode.Size = newSize;
-        modifiedInode = true;
+    // Indirect blocks
+    if (endBlock >= POINTERS_PER_INODE) {
+        if (inode.Indirect == 0) {
+            inode.Indirect = allocate_free_block();
+        }
+
+        mounted_disk->readDisk(mounted_disk, inode.Indirect, indirect.Data);
+
+        for (size_t i = startBlock; i < endBlock + 1 && i < POINTERS_PER_BLOCK ; i++) {
+            Block block;
+
+            if (indirect.Pointers[i - POINTERS_PER_INODE] == 0) {
+                indirect.Pointers[i - POINTERS_PER_INODE] = allocate_free_block();
+            }
+
+            mounted_disk->readDisk(mounted_disk, indirect.Pointers[i - POINTERS_PER_INODE], block.Data);
+
+            size_t start = 0;
+            size_t end = BLOCK_SIZE;
+            if (i == endBlock) {
+                end = (offset + length) % BLOCK_SIZE;
+            }
+
+
+            for (size_t j = start; j < end; j++) {
+                block.Data[j] = data[bytes_written];
+                bytes_written++;
+            }
+
+
+            mounted_disk->writeDisk(mounted_disk, indirect.Pointers[i - POINTERS_PER_INODE], block.Data);
+
+        }
+
+        mounted_disk->writeDisk(mounted_disk, inode.Indirect, indirect.Data);
     }
 
-    //Save modifications on indirect and inode, if any
-    if(modifiedInode) save_inode(inumber, &inode);
-    if(modifiedIndirect) mounted_disk->writeDisk(mounted_disk, inode.Indirect, indirect.Data);
+    // Update inode size
+    if (offset + length > inode.Size) {
+        inode.Size = offset + length;
+    }
 
-    return written;
+    if (!save_inode(inumber, &inode)) {
+        return -1;
+    }
+
+    return bytes_written;
 }
 
 // Helper functions ---------------------------------------------------------
