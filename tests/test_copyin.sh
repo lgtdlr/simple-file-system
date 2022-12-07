@@ -17,6 +17,9 @@ debug
 copyout 0 $SCRATCH/1.copy
 EOF
 echo -n "Testing copyin in $SCRATCH/image.5 ... "
+#cat $SCRATCH/1.txt
+echo "COPY"
+#cat $SCRATCH/1.copy
 if [ $(md5sum $SCRATCH/1.copy | awk '{print $1}') = '1edec6bc701059c45053cf79e7e16588' ]; then
     echo "Success"
 else
@@ -40,6 +43,15 @@ copyout 1 $SCRATCH/2.copy
 debug
 EOF
 echo -n "Testing copyin in $SCRATCH/image.20 ... "
+# echo "2.txt-----------------------------------------------"
+# cat $SCRATCH/2.txt
+echo -n "2.copy----------------------------------------------"
+cp $SCRATCH/2.txt 2.txt
+cat $SCRATCH/2.copy
+# echo "3.txt----------------------------------------------"
+# cat $SCRATCH/3.txt
+# echo "3.copy----------------------------------------------"
+# cat $SCRATCH/3.copy
 if [ $(md5sum $SCRATCH/2.copy | awk '{print $1}') = '1adf08d52e0f1a162a3a887a19fcf1f8' ] &&
    [ $(md5sum $SCRATCH/3.copy | awk '{print $1}') = 'd083a4be9fde347b98a8dbdfcc196819' ]; then
     echo "Success"
@@ -68,6 +80,12 @@ copyout 3 $SCRATCH/2.copy
 copyout 4 $SCRATCH/9.copy
 EOF
 echo -n "Testing copyin in $SCRATCH/image.200 ... "
+cp $SCRATCH/9.txt 9.txt
+cp $SCRATCH/9.copy 9.copy
+#echo "COPY"
+#cat $SCRATCH/9.copy
+#cat $SCRATCH/2.copy
+#cat $SCRATCH/1.copy
 if [ $(md5sum $SCRATCH/1.copy | awk '{print $1}') = '0af623d6d8cb0a514816e17c7386a298' ] &&
    [ $(md5sum $SCRATCH/2.copy | awk '{print $1}') = '307fe5cee7ac87c3b06ea5bda80301ee' ] &&
    [ $(md5sum $SCRATCH/9.copy | awk '{print $1}') = 'fa4280d88da260281e509296fd2f3ea2' ]; then
