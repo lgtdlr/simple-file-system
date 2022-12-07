@@ -193,7 +193,7 @@ void do_create(Disk *disk, FileSystem *fs, int args, char *arg1, char *arg2) {
     	return;
     }
 
-    size_t inumber = fs->create();
+    ssize_t inumber = fs->create();
     if (inumber >= 0) {
     	printf("created inode %d.\n", inumber);
     } else {

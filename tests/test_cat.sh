@@ -53,7 +53,7 @@ EOF
 }
 
 echo -n "Testing cat on data/image.5 ... "
-if diff -u <(image-5-input | ./bin/sfssh data/image.5 5 2> /dev/null | sort) <(image-5-output) > test.log; then
+if diff -u <(image-5-input | ./bin/sfssh data/image.5 5 2> /dev/null | sort) <(image-5-output | sort) > test.log; then
     echo "Success"
 else
     echo "Failure"
